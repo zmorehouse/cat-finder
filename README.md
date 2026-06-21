@@ -41,6 +41,11 @@ If an SMS fails (e.g. Twilio misconfigured), the animal stays "unnotified" and i
 composer install
 cp .env.example .env
 php artisan key:generate
+
+# Bring up a local Postgres (or set DB_CONNECTION=sqlite in .env to skip this):
+docker run -d --name catfinder-pg -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=catfinder -p 5432:5432 postgres:16
+
 php artisan migrate
 
 # Fill in your Twilio details in .env, then run a check manually:
@@ -69,3 +74,24 @@ php artisan schedule:work
 | `CATFINDER_NOTIFY_FIRST_RUN` | no | `true` to text on the first run too (default `false`) |
 | `RSPCA_ANIMAL_TYPE` | no | Defaults to `cat;kitten` |
 | `RSPCA_LIMIT` | no | Records to pull per request (default `100`) |
+| `DB_CONNECTION` | yes | `pgsql` in production (`sqlite` for quick local dev) |
+| `DB_URL` | * | Full Postgres URL; on Railway use `${{Postgres.DATABASE_PRIVATE_URL}}` |
+| `DB_HOST` / `DB_PORT` / `DB_DATABASE` / `DB_USERNAME` / `DB_PASSWORD` | * | Use these instead of `DB_URL` if you prefer individual parts |
+
+\* Provide **either** `DB_URL` **or** the individual `DB_*` parts.
+
+## Database
+
+The app uses **Postgres**. This is required if you run the web dashboard and the
+hourly check as **two separate Railway services** — they can't share a SQLite file
+(a volume only mounts to one service), so both must point at the same networked
+Postgres via the `DB_*` env vars above.
+
+- Add a **Postgres** database in Railway, then set `DB_CONNECTION=pgsql` and
+  `DB_URL=${{Postgres.DATABASE_PRIVATE_URL}}` on **both** the web and cron services.
+- Migrations run from the web service's `start.sh` (`php artisan migrate --force`),
+  so the cron service only needs to run `php artisan app:check-adoptions`.
+- The Postgres driver (`ext-pdo_pgsql`) is declared in `composer.json` so the
+  Nixpacks build includes it.
+
+For quick local dev you can still set `DB_CONNECTION=sqlite` to avoid running Postgres.
