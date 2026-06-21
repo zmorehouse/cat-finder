@@ -21,8 +21,7 @@ On the **first run** it just records a baseline (no text) so you aren't spammed 
 every existing animal. Flip `CATFINDER_NOTIFY_FIRST_RUN=true` if you want the first run
 to text you too.
 
-If an SMS fails (e.g. Twilio misconfigured), the animal stays "unnotified" and is retried
-on the next run.
+If an SMS fails (e.g. Twilio misconfigured), the animal stays "unnotified" and is retried on the next run.
 
 ## Key files
 
@@ -70,33 +69,3 @@ php artisan schedule:work
 | `CATFINDER_NOTIFY_FIRST_RUN` | no | `true` to text on the first run too (default `false`) |
 | `RSPCA_ANIMAL_TYPE` | no | Defaults to `cat;kitten` |
 | `RSPCA_LIMIT` | no | Records to pull per request (default `100`) |
-
-## Deploying to Railway
-
-1. Push this repo to GitHub and create a new Railway project from it.
-2. Railway will build it with Nixpacks (PHP is auto-detected). The start command is
-   defined in `railway.json` and runs `start.sh`, which:
-   - runs migrations,
-   - starts the hourly scheduler (`php artisan schedule:work`),
-   - serves the dashboard on `$PORT`.
-3. In the service **Variables**, set at minimum:
-   - `APP_KEY` — generate one locally with `php artisan key:generate --show` (optional;
-     `start.sh` generates an ephemeral one if omitted, but a fixed value keeps sessions stable).
-   - `APP_ENV=production`, `APP_DEBUG=false`
-   - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`, `TWILIO_TO`
-4. **Persist the database (recommended).** The default SQLite file lives on the
-   container's ephemeral disk and resets on each redeploy. To keep your "seen animals"
-   history across deploys, add a Railway **Volume** mounted at `/data` and set:
-   - `DB_DATABASE=/data/database.sqlite`
-
-   (Or attach a Railway Postgres plugin and set `DB_CONNECTION=pgsql` plus the usual
-   `DB_HOST`/`DB_PORT`/`DB_DATABASE`/`DB_USERNAME`/`DB_PASSWORD`.)
-
-That's it — the scheduler runs inside the web container, so a single Railway service
-covers both the hourly check and the dashboard.
-
-## Notes
-
-- The dashboard uses Laravel's built-in `php artisan serve`, which is fine for a personal,
-  low-traffic app. Swap in nginx/php-fpm or Octane if you need more throughput.
-- Twilio trial accounts can only text verified numbers and prepend a trial banner.

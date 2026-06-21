@@ -36,8 +36,13 @@ return [
         'token' => env('TWILIO_AUTH_TOKEN'),
         // The number you send FROM (a Twilio number, e.g. +61...).
         'from' => env('TWILIO_FROM'),
-        // The number you receive the alert ON.
+        // The number(s) you receive the alert ON. Supports a comma-separated
+        // list, e.g. TWILIO_TO="+61400000000,+61422717726".
         'to' => env('TWILIO_TO'),
+        'recipients' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('TWILIO_TO'))
+        ))),
     ],
 
     /*

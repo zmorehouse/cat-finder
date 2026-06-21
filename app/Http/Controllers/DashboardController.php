@@ -16,8 +16,7 @@ class DashboardController extends Controller
     {
         $logs = NotificationLog::query()
             ->latest()
-            ->limit(100)
-            ->get();
+            ->paginate(15);
 
         $animals = AdoptionAnimal::query()
             ->orderByDesc('first_seen_at')

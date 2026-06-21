@@ -110,17 +110,16 @@ class AdoptionWatcher
             'external_id', 'name', 'type', 'breed', 'age', 'site', 'url',
         ]), $newAnimals);
 
-        try {
-            $result = $this->notifier->sendSms($body);
-        } catch (Throwable $e) {
-            Log::error('Twilio send failed', ['error' => $e->getMessage()]);
+        $recipients = config('catfinder.twilio.recipients') ?: [];
 
+        // No recipients configured at all: record one failure and bail.
+        if (empty($recipients)) {
             NotificationLog::create([
                 'channel' => 'sms',
-                'recipient' => config('catfinder.twilio.to'),
+                'recipient' => null,
                 'status' => 'failed',
                 'body' => $body,
-                'error' => $e->getMessage(),
+                'error' => 'No TWILIO_TO recipient configured.',
                 'animal_count' => count($newAnimals),
                 'animals' => $snapshot,
             ]);
@@ -129,25 +128,41 @@ class AdoptionWatcher
                 'fetched' => $fetched,
                 'new' => count($newAnimals),
                 'notified' => false,
-                'message' => 'Found '.count($newAnimals).' new but SMS failed: '.$e->getMessage(),
+                'message' => 'Found '.count($newAnimals).' new but no recipient is configured.',
             ];
         }
 
-        $sent = $result['status'] !== 'failed';
+        $anySent = false;
+        $perRecipient = [];
 
-        NotificationLog::create([
-            'channel' => 'sms',
-            'recipient' => config('catfinder.twilio.to'),
-            'status' => $sent ? 'sent' : 'failed',
-            'body' => $body,
-            'provider_sid' => $result['sid'],
-            'error' => $result['error'],
-            'animal_count' => count($newAnimals),
-            'animals' => $snapshot,
-        ]);
+        foreach ($recipients as $recipient) {
+            try {
+                $result = $this->notifier->sendSms($body, $recipient);
+            } catch (Throwable $e) {
+                Log::error('Twilio send failed', ['recipient' => $recipient, 'error' => $e->getMessage()]);
+                $result = ['sid' => null, 'status' => 'failed', 'error' => $e->getMessage()];
+            }
 
-        // Only mark as notified if the message actually went out.
-        if ($sent) {
+            $sent = $result['status'] !== 'failed';
+            $anySent = $anySent || $sent;
+            $perRecipient[] = $recipient.': '.($sent ? 'sent' : 'failed');
+
+            // One log row per recipient so each number's status is visible.
+            NotificationLog::create([
+                'channel' => 'sms',
+                'recipient' => $recipient,
+                'status' => $sent ? 'sent' : 'failed',
+                'body' => $body,
+                'provider_sid' => $result['sid'],
+                'error' => $result['error'],
+                'animal_count' => count($newAnimals),
+                'animals' => $snapshot,
+            ]);
+        }
+
+        // Mark animals as notified if at least one recipient got the text, so a
+        // single misconfigured number doesn't trigger hourly re-texting forever.
+        if ($anySent) {
             AdoptionAnimal::whereIn('id', array_map(fn ($a) => $a->id, $newAnimals))
                 ->update(['notified' => true]);
         }
@@ -155,10 +170,10 @@ class AdoptionWatcher
         return [
             'fetched' => $fetched,
             'new' => count($newAnimals),
-            'notified' => $sent,
-            'message' => $sent
-                ? 'Texted you about '.count($newAnimals).' new cat(s)/kitten(s).'
-                : 'Found '.count($newAnimals).' new but SMS failed: '.$result['error'],
+            'notified' => $anySent,
+            'message' => $anySent
+                ? 'Texted '.count($recipients).' recipient(s) about '.count($newAnimals).' new cat(s)/kitten(s).'
+                : 'Found '.count($newAnimals).' new but all sends failed ('.implode('; ', $perRecipient).').',
         ];
     }
 
