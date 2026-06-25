@@ -17,10 +17,12 @@ class AdoptionAnimal extends Model
         'url',
         'notified',
         'first_seen_at',
+        'removed_at',
     ];
 
     protected $casts = [
         'notified' => 'boolean',
         'first_seen_at' => 'datetime',
+        'removed_at' => 'datetime',
     ];
 }

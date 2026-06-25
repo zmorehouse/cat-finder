@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AdoptionAnimal;
 use App\Models\NotificationLog;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -36,11 +37,15 @@ class AdoptionWatcher
 
         $wasEmpty = AdoptionAnimal::count() === 0;
 
+        $seenIds = [];
+
         // Upsert everything we just saw.
         foreach ($animals as $animal) {
             if (empty($animal['external_id'])) {
                 continue;
             }
+
+            $seenIds[] = $animal['external_id'];
 
             AdoptionAnimal::updateOrCreate(
                 ['external_id' => $animal['external_id']],
@@ -52,10 +57,16 @@ class AdoptionWatcher
                     'site' => $animal['site'],
                     'status' => $animal['status'],
                     'url' => $animal['url'],
-                    // Note: we intentionally don't touch `notified` here so an
-                    // existing animal keeps its state across runs.
+                    'removed_at' => null,
                 ]
             );
+        }
+
+        // Mark anything we didn't see this run as removed.
+        if (! empty($seenIds)) {
+            AdoptionAnimal::whereNotIn('external_id', $seenIds)
+                ->whereNull('removed_at')
+                ->update(['removed_at' => Carbon::now()]);
         }
 
         // Stamp first_seen_at on any brand-new rows.
@@ -94,34 +105,37 @@ class AdoptionWatcher
             ];
         }
 
+        if (! Cache::get('notifications_enabled', true)) {
+            return [
+                'fetched' => count($animals),
+                'new' => $pending->count(),
+                'notified' => false,
+                'message' => 'Found '.$pending->count().' new animal(s) but notifications are disabled.',
+            ];
+        }
+
         return $this->notify($pending->all(), count($animals));
     }
 
     /**
-     * Send the SMS for the given new animals and record the outcome.
+     * Send one SMS per new animal to each recipient and record the outcome.
      *
      * @param  array<int, AdoptionAnimal>  $newAnimals
      * @return array<string, mixed>
      */
     protected function notify(array $newAnimals, int $fetched): array
     {
-        $body = $this->buildMessage($newAnimals);
-        $snapshot = array_map(fn (AdoptionAnimal $a) => $a->only([
-            'external_id', 'name', 'type', 'breed', 'age', 'site', 'url',
-        ]), $newAnimals);
-
         $recipients = config('catfinder.vonage.recipients') ?: [];
 
-        // No recipients configured at all: record one failure and bail.
         if (empty($recipients)) {
             NotificationLog::create([
                 'channel' => 'sms',
                 'recipient' => null,
                 'status' => 'failed',
-                'body' => $body,
+                'body' => 'No VONAGE_TO recipient configured.',
                 'error' => 'No VONAGE_TO recipient configured.',
                 'animal_count' => count($newAnimals),
-                'animals' => $snapshot,
+                'animals' => [],
             ]);
 
             return [
@@ -133,38 +147,39 @@ class AdoptionWatcher
         }
 
         $anySent = false;
-        $perRecipient = [];
 
-        foreach ($recipients as $recipient) {
-            try {
-                $result = $this->notifier->sendSms($body, $recipient);
-            } catch (Throwable $e) {
-                Log::error('Vonage send failed', ['recipient' => $recipient, 'error' => $e->getMessage()]);
-                $result = ['sid' => null, 'status' => 'failed', 'error' => $e->getMessage()];
+        foreach ($newAnimals as $animal) {
+            $body = $this->buildMessage($animal);
+            $snapshot = $animal->only(['external_id', 'name', 'type', 'breed', 'age', 'site', 'url']);
+            $animalSent = false;
+
+            foreach ($recipients as $recipient) {
+                try {
+                    $result = $this->notifier->sendSms($body, $recipient);
+                } catch (Throwable $e) {
+                    Log::error('Vonage send failed', ['recipient' => $recipient, 'error' => $e->getMessage()]);
+                    $result = ['sid' => null, 'status' => 'failed', 'error' => $e->getMessage()];
+                }
+
+                $sent = $result['status'] !== 'failed';
+                $anySent = $anySent || $sent;
+                $animalSent = $animalSent || $sent;
+
+                NotificationLog::create([
+                    'channel' => 'sms',
+                    'recipient' => $recipient,
+                    'status' => $sent ? 'sent' : 'failed',
+                    'body' => $body,
+                    'provider_sid' => $result['sid'],
+                    'error' => $result['error'],
+                    'animal_count' => 1,
+                    'animals' => [$snapshot],
+                ]);
             }
 
-            $sent = $result['status'] !== 'failed';
-            $anySent = $anySent || $sent;
-            $perRecipient[] = $recipient.': '.($sent ? 'sent' : 'failed');
-
-            // One log row per recipient so each number's status is visible.
-            NotificationLog::create([
-                'channel' => 'sms',
-                'recipient' => $recipient,
-                'status' => $sent ? 'sent' : 'failed',
-                'body' => $body,
-                'provider_sid' => $result['sid'],
-                'error' => $result['error'],
-                'animal_count' => count($newAnimals),
-                'animals' => $snapshot,
-            ]);
-        }
-
-        // Mark animals as notified if at least one recipient got the text, so a
-        // single misconfigured number doesn't trigger hourly re-texting forever.
-        if ($anySent) {
-            AdoptionAnimal::whereIn('id', array_map(fn ($a) => $a->id, $newAnimals))
-                ->update(['notified' => true]);
+            if ($animalSent) {
+                $animal->update(['notified' => true]);
+            }
         }
 
         return [
@@ -173,31 +188,18 @@ class AdoptionWatcher
             'notified' => $anySent,
             'message' => $anySent
                 ? 'Texted '.count($recipients).' recipient(s) about '.count($newAnimals).' new cat(s)/kitten(s).'
-                : 'Found '.count($newAnimals).' new but all sends failed ('.implode('; ', $perRecipient).').',
+                : 'Found '.count($newAnimals).' new but all sends failed.',
         ];
     }
 
-    /**
-     * Build a concise SMS body listing the new animals.
-     *
-     * @param  array<int, AdoptionAnimal>  $animals
-     */
-    protected function buildMessage(array $animals): string
+    protected function buildMessage(AdoptionAnimal $animal): string
     {
-        $count = count($animals);
-        $noun = $count === 1 ? 'cat/kitten' : 'cats/kittens';
-        $lines = ["\u{1F431} {$count} new {$noun} at RSPCA ACT:"];
+        $details = collect([$animal->type, $animal->age, $animal->site])->filter()->implode(', ');
 
-        $shown = array_slice($animals, 0, 5);
-        foreach ($shown as $a) {
-            $details = array_filter([$a->type, $a->age, $a->site]);
-            $lines[] = "- {$a->name} (".implode(', ', $details).")\n  {$a->url}";
-        }
-
-        if ($count > count($shown)) {
-            $lines[] = '...and '.($count - count($shown)).' more.';
-        }
-
-        return implode("\n", $lines);
+        return implode("\n", [
+            "\u{1F431} New cat/kitten at RSPCA ACT:",
+            "{$animal->name} ({$details})",
+            $animal->url,
+        ]);
     }
 }

@@ -38,6 +38,7 @@
             display: flex; align-items: center; justify-content: space-between;
         }
         .title { font-weight: 700; letter-spacing: .03em; }
+        .topbar-actions { display: flex; align-items: center; gap: 8px; }
 
         .btn {
             background: transparent; color: var(--text);
@@ -46,6 +47,8 @@
             text-transform: uppercase; letter-spacing: .06em;
         }
         .btn:hover { background: var(--surface-2); border-color: #4d4d4d; }
+        .btn.btn-muted { color: var(--muted); border-color: var(--border); }
+        .btn.btn-muted:hover { color: var(--text); border-color: var(--border-strong); }
 
         .wrap { max-width: 880px; margin: 0 auto; padding: 24px 20px 80px; }
 
@@ -61,6 +64,19 @@
         }
         .section-head h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0; }
         .section-head .count { font-size: 11px; color: var(--dim); }
+
+        .tabs { display: flex; gap: 0; margin-bottom: 0; border-bottom: 1px solid var(--border); }
+        .tab-link {
+            padding: 7px 16px; font: inherit; font-size: 11px; text-transform: uppercase;
+            letter-spacing: .1em; color: var(--muted); border: 1px solid transparent;
+            border-bottom: none; cursor: pointer; text-decoration: none;
+            margin-bottom: -1px;
+        }
+        .tab-link:hover { color: var(--text); text-decoration: none; }
+        .tab-link.active {
+            color: var(--text); background: var(--bg);
+            border-color: var(--border); border-bottom-color: var(--bg);
+        }
 
         .rows { display: flex; flex-direction: column; }
         .row { border: 1px solid var(--border); border-top: none; padding: 12px 14px; background: var(--surface); }
@@ -78,6 +94,8 @@
         .tag.sent { color: #3fb950; border-color: #2ea043; }
         .tag.failed { color: #f85149; border-color: #da3633; }
         .tag.skipped { color: var(--dim); border-color: var(--border); }
+        .tag.available { color: #3fb950; border-color: #2ea043; }
+        .tag.adopted { color: #f85149; border-color: #da3633; }
 
         .body { white-space: pre-wrap; word-break: break-word; color: var(--muted); font-size: 12px; margin-top: 8px; padding-left: 2px; border-left: 1px solid var(--border); padding: 8px 0 0 12px; }
         .err { color: #9a9a9a; font-size: 12px; margin-top: 6px; }
@@ -90,16 +108,28 @@
         .pg:hover { background: var(--surface-2); text-decoration: none; }
         .pg.disabled { color: var(--dim); border-color: var(--border); pointer-events: none; }
         .pg-info { color: var(--muted); }
+
+        .notif-status { font-size: 11px; color: var(--dim); padding: 0 4px; }
     </style>
 </head>
 <body>
     <div class="topbar">
         <div class="topbar-inner">
             <span class="title">Cat Finder</span>
-            <form method="POST" action="{{ route('check') }}">
-                @csrf
-                <button class="btn" type="submit">Run check</button>
-            </form>
+            <div class="topbar-actions">
+                <form method="POST" action="{{ route('notifications.toggle') }}">
+                    @csrf
+                    @if ($notificationsEnabled)
+                        <button class="btn" type="submit" title="Notifications on — click to disable">Notifs on</button>
+                    @else
+                        <button class="btn btn-muted" type="submit" title="Notifications off — click to enable">Notifs off</button>
+                    @endif
+                </form>
+                <form method="POST" action="{{ route('check') }}">
+                    @csrf
+                    <button class="btn" type="submit">Run check</button>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -154,16 +184,26 @@
             </div>
         @endif
 
-        <div class="section-head">
+        <div class="section-head" style="margin-bottom: 0;">
             <h2>Tracked</h2>
-            <span class="count">{{ $animals->count() }} animals</span>
+            <span class="count">{{ $availableCount }} available · {{ $adoptedCount }} adopted</span>
+        </div>
+        <div class="tabs">
+            <a class="tab-link {{ $tab === 'available' ? 'active' : '' }}"
+               href="{{ route('dashboard', ['tab' => 'available']) }}">
+                Available ({{ $availableCount }})
+            </a>
+            <a class="tab-link {{ $tab === 'adopted' ? 'active' : '' }}"
+               href="{{ route('dashboard', ['tab' => 'adopted']) }}">
+                Adopted ({{ $adoptedCount }})
+            </a>
         </div>
         <div class="rows">
             @forelse ($animals as $a)
                 <div class="row">
                     <div class="line">
                         <a class="title" href="{{ $a->url }}" target="_blank" rel="noopener">{{ $a->name }}</a>
-                        <span class="tag">{{ $a->type }}</span>
+                        <span class="tag {{ $a->removed_at ? 'adopted' : 'available' }}">{{ $a->type }}</span>
                         @unless ($a->notified)<span class="new">&#9679; new</span>@endunless
                         <span class="spacer"></span>
                         <span class="sub">{{ collect([$a->age, $a->site])->filter()->implode(' · ') }}</span>
@@ -173,6 +213,21 @@
                 <div class="empty">nothing tracked yet</div>
             @endforelse
         </div>
+        @if ($animals->hasPages())
+            <div class="pager">
+                @if ($animals->onFirstPage())
+                    <span class="pg disabled">prev</span>
+                @else
+                    <a class="pg" href="{{ $animals->previousPageUrl() }}">prev</a>
+                @endif
+                <span class="pg-info">page {{ $animals->currentPage() }} / {{ $animals->lastPage() }}</span>
+                @if ($animals->hasMorePages())
+                    <a class="pg" href="{{ $animals->nextPageUrl() }}">next</a>
+                @else
+                    <span class="pg disabled">next</span>
+                @endif
+            </div>
+        @endif
     </div>
 </body>
 </html>
