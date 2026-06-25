@@ -111,7 +111,7 @@
             <div class="flash err">{{ session('error') }}</div>
         @endif
         @unless ($twilioConfigured)
-            <div class="flash warn">twilio not configured &mdash; set <code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code>, <code>TWILIO_FROM</code>, <code>TWILIO_TO</code></div>
+            <div class="flash warn">vonage not configured &mdash; set <code>VONAGE_API_KEY</code>, <code>VONAGE_API_SECRET</code>, <code>VONAGE_FROM</code>, <code>VONAGE_TO</code></div>
         @endunless
 
         <div class="section-head">

@@ -67,7 +67,7 @@ class AdoptionWatcher
 
             NotificationLog::create([
                 'channel' => 'sms',
-                'recipient' => config('catfinder.twilio.to'),
+                'recipient' => config('catfinder.vonage.to'),
                 'status' => 'skipped',
                 'body' => 'Baseline established: now tracking '.count($animals).' cat(s)/kitten(s). No alert sent for existing listings.',
                 'animal_count' => count($animals),
@@ -110,7 +110,7 @@ class AdoptionWatcher
             'external_id', 'name', 'type', 'breed', 'age', 'site', 'url',
         ]), $newAnimals);
 
-        $recipients = config('catfinder.twilio.recipients') ?: [];
+        $recipients = config('catfinder.vonage.recipients') ?: [];
 
         // No recipients configured at all: record one failure and bail.
         if (empty($recipients)) {
@@ -119,7 +119,7 @@ class AdoptionWatcher
                 'recipient' => null,
                 'status' => 'failed',
                 'body' => $body,
-                'error' => 'No TWILIO_TO recipient configured.',
+                'error' => 'No VONAGE_TO recipient configured.',
                 'animal_count' => count($newAnimals),
                 'animals' => $snapshot,
             ]);
@@ -139,7 +139,7 @@ class AdoptionWatcher
             try {
                 $result = $this->notifier->sendSms($body, $recipient);
             } catch (Throwable $e) {
-                Log::error('Twilio send failed', ['recipient' => $recipient, 'error' => $e->getMessage()]);
+                Log::error('Vonage send failed', ['recipient' => $recipient, 'error' => $e->getMessage()]);
                 $result = ['sid' => null, 'status' => 'failed', 'error' => $e->getMessage()];
             }
 

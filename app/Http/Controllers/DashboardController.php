@@ -23,17 +23,17 @@ class DashboardController extends Controller
             ->get();
 
         $twilioConfigured = (bool) (
-            config('catfinder.twilio.sid')
-            && config('catfinder.twilio.token')
-            && config('catfinder.twilio.from')
-            && config('catfinder.twilio.to')
+            config('catfinder.vonage.api_key')
+            && config('catfinder.vonage.api_secret')
+            && config('catfinder.vonage.from')
+            && config('catfinder.vonage.to')
         );
 
         return view('dashboard', [
             'logs' => $logs,
             'animals' => $animals,
             'twilioConfigured' => $twilioConfigured,
-            'recipient' => config('catfinder.twilio.to'),
+            'recipient' => config('catfinder.vonage.to'),
         ]);
     }
 

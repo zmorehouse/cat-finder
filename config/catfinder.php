@@ -28,20 +28,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Twilio
+    | Vonage
     |--------------------------------------------------------------------------
     */
-    'twilio' => [
-        'sid' => env('TWILIO_ACCOUNT_SID'),
-        'token' => env('TWILIO_AUTH_TOKEN'),
-        // The number you send FROM (a Twilio number, e.g. +61...).
-        'from' => env('TWILIO_FROM'),
+    'vonage' => [
+        'api_key' => env('VONAGE_API_KEY'),
+        'api_secret' => env('VONAGE_API_SECRET'),
+        // The name or number you send FROM (e.g. "CatFinder" or +61...).
+        'from' => env('VONAGE_FROM', 'CatFinder'),
         // The number(s) you receive the alert ON. Supports a comma-separated
-        // list, e.g. TWILIO_TO="+61400000000,+61422717726".
-        'to' => env('TWILIO_TO'),
+        // list, e.g. VONAGE_TO="+61400000000,+61422717726".
+        'to' => env('VONAGE_TO'),
         'recipients' => array_values(array_filter(array_map(
             'trim',
-            explode(',', (string) env('TWILIO_TO'))
+            explode(',', (string) env('VONAGE_TO'))
         ))),
     ],
 

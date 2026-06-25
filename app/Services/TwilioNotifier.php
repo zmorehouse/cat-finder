@@ -2,54 +2,60 @@
 
 namespace App\Services;
 
-use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 class TwilioNotifier
 {
     /**
-     * Send an SMS via the Twilio REST API.
-     *
-     * Uses a plain authenticated HTTP request so we don't need the Twilio SDK
-     * as a dependency.
+     * Send an SMS via the Vonage REST API.
      *
      * @return array{sid: ?string, status: string, error: ?string}
      */
     public function sendSms(string $body, ?string $to = null): array
     {
-        $sid = config('catfinder.twilio.sid');
-        $token = config('catfinder.twilio.token');
-        $from = config('catfinder.twilio.from');
-        $to = $to ?: config('catfinder.twilio.to');
+        $apiKey = config('catfinder.vonage.api_key');
+        $apiSecret = config('catfinder.vonage.api_secret');
+        $from = config('catfinder.vonage.from');
+        $to = $to ?: config('catfinder.vonage.to');
 
-        if (! $sid || ! $token || ! $from || ! $to) {
+        if (! $apiKey || ! $apiSecret || ! $from || ! $to) {
             throw new RuntimeException(
-                'Twilio is not fully configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM and TWILIO_TO.'
+                'Vonage is not fully configured. Set VONAGE_API_KEY, VONAGE_API_SECRET, VONAGE_FROM and VONAGE_TO.'
             );
         }
 
-        /** @var Response $response */
-        $response = Http::asForm()
-            ->withBasicAuth($sid, $token)
-            ->timeout(30)
-            ->post("https://api.twilio.com/2010-04-01/Accounts/{$sid}/Messages.json", [
-                'From' => $from,
-                'To' => $to,
-                'Body' => $body,
+        $response = Http::timeout(30)
+            ->post('https://rest.nexmo.com/sms/json', [
+                'api_key' => $apiKey,
+                'api_secret' => $apiSecret,
+                'from' => $from,
+                'to' => $to,
+                'text' => $body,
             ]);
 
         if (! $response->successful()) {
             return [
                 'sid' => null,
                 'status' => 'failed',
-                'error' => $response->json('message') ?? $response->body(),
+                'error' => $response->body(),
+            ];
+        }
+
+        $message = $response->json('messages.0') ?? [];
+        $errorCode = (string) ($message['status'] ?? '0');
+
+        if ($errorCode !== '0') {
+            return [
+                'sid' => null,
+                'status' => 'failed',
+                'error' => $message['error-text'] ?? "Vonage error code {$errorCode}",
             ];
         }
 
         return [
-            'sid' => $response->json('sid'),
-            'status' => $response->json('status', 'sent'),
+            'sid' => $message['message-id'] ?? null,
+            'status' => 'sent',
             'error' => null,
         ];
     }
